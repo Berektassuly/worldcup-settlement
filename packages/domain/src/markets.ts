@@ -7,7 +7,9 @@ export const SUPPORTED_MARKET_KINDS = [
   "total_goals_over",
   "total_goals_under",
   "participant_1_goals_over",
-  "participant_2_goals_over"
+  "participant_1_goals_under",
+  "participant_2_goals_over",
+  "participant_2_goals_under"
 ] as const;
 
 export type MarketKind = (typeof SUPPORTED_MARKET_KINDS)[number];
@@ -42,6 +44,11 @@ export type ResolutionPreview = {
   readonly reason: string;
   readonly sourceSeq?: number;
   readonly sourceTs?: number;
+  readonly score?: {
+    readonly participant1Goals: number;
+    readonly participant2Goals: number;
+  };
+  readonly statSource?: string;
 };
 
 export type ProofProvider = {

@@ -21,6 +21,16 @@ The submission demo should show a sports product first and the proof layer secon
 
 The app should support replaying saved TxLINE score sequences because judges may review when no relevant World Cup match is live.
 
-## Phase 1 Demo State
+## Current Demo State
 
-This pass only proves the monorepo, package boundaries, TxLINE client skeleton, SSE parser, schemas, and minimal app runtime. The full fixture board and receipt UI belong to the next implementation phase.
+The app now includes the Phase 3 fixture and market demo:
+
+- Fixture board from `/api/demo/fixtures`
+- Replay fallback when TxLINE credentials are missing
+- Deterministic soccer market cards
+- Mock points ledger
+- Simulated positions
+- Would-resolve-now market states
+- Settlement receipt with source, rule, outcome, side, ledger movement, and advanced proof placeholder
+
+The next implementation pass should turn the proof placeholder into a real `/api/scores/stat-validation` fetch and validation flow.

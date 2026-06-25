@@ -63,3 +63,27 @@ Soccer full-game stat keys:
 - `8`: participant 2 corners
 
 The settlement package normalizes proof hashes to 32 byte arrays before any Solana validation call.
+
+## Demo Data Route
+
+The web app uses `GET /api/demo/fixtures` for the Phase 3 demo flow.
+
+- If `TXLINE_JWT` and `TXLINE_API_TOKEN` are set, the route loads TxLINE fixtures, score snapshots, and odds snapshots.
+- If credentials are missing or TxLINE is unavailable, the route returns replay fixtures and marks the response as `mode: "replay"`.
+- The UI displays the active mode clearly so judges can tell whether they are seeing live TxLINE-backed data or replay data.
+
+## Market Rule Mapping
+
+The domain package maps soccer markets to TxLINE full-game stat keys:
+
+- Participant 1 wins: stat `1 - 2 > 0`
+- Participant 2 wins: stat `2 - 1 > 0`
+- Draw: stat `1 - 2 == 0`
+- Total goals over `2.5`: stat `1 + 2 > 2`
+- Total goals under `2.5`: stat `1 + 2 < 3`
+- Team total over `0.5`: team goals `> 0`
+- Team total under `0.5`: team goals `< 1`
+- Team total over `1.5`: team goals `> 1`
+- Team total under `1.5`: team goals `< 2`
+
+The UI uses half-goal lines, but proof predicates stay integer-safe because soccer goals are integers.

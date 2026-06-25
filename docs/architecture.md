@@ -35,9 +35,15 @@ The domain package defines what the product needs. TxLINE and Solana packages pr
 3. The client validates fixture, odds, score, and proof payloads with shared Zod schemas.
 4. The UI remains a minimal shell until fixture and receipt workflows are added.
 
+## Phase 2-3 Runtime Shape
+
+- `packages/domain` now exposes soccer-only market templates and deterministic resolution.
+- `apps/web` exposes `/api/demo/fixtures`, which attempts TxLINE when credentials are configured and otherwise returns replay data.
+- The demo UI shows a fixture board, market cards, mock points positions, would-resolve-now states, and a readable receipt.
+- Receipts include the fixture, rule, score source, outcome, position side, ledger movement, and an expandable proof placeholder.
+
 ## Later Phases
 
-- Add fixture board and market cards in `apps/web`.
-- Add deterministic soccer resolution in `packages/domain`.
-- Add proof-backed settlement receipts in `packages/settlement`.
+- Add proof retrieval and validation using `GET /api/scores/stat-validation`.
+- Add a durable receipt store if the demo needs persistence.
 - Add Anchor or Solana client implementation in `packages/solana-adapter` after the data flow is reliable.
