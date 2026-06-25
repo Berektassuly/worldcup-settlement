@@ -1,15 +1,15 @@
 # WorldCup Settlement Architecture
 
-WorldCup Settlement is a small TxLINE-powered prediction settlement app. The MVP should feel like a simple soccer prediction product first, with proof and settlement details available when a market resolves.
+WorldCup Settlement is a TxLINE-powered soccer prediction demo where every mock payout has a readable receipt: fixture, rule, score source, proof payload, and settlement movement.
 
-## Boundaries
+## Package Boundaries
 
-- `apps/web` owns the Next.js app, route handlers, server-side environment access, and the initial UI shell.
-- `packages/domain` owns market terms, pure resolution contracts, and repository ports. It must not import TxLINE, Solana, React, or framework code.
-- `packages/shared` owns common schemas, constants, and wire types shared across packages.
+- `apps/web` owns the Next.js app, route handlers, server-side environment access, replay data, and the demo UI.
+- `packages/domain` owns pure soccer market templates and deterministic resolution. It does not import TxLINE, Solana, React, Next.js, wallet adapters, or framework code.
+- `packages/shared` owns Zod schemas, constants, and wire types shared across packages.
 - `packages/txline-client` owns TxLINE REST and SSE access.
-- `packages/settlement` owns proof normalization and receipt models.
-- `packages/solana-adapter` owns Solana and TxLINE program integration boundaries. Phase 1 only defines constants and interfaces.
+- `packages/settlement` owns receipt models, proof normalization, byte validation, and deterministic predicate evaluation.
+- `packages/solana-adapter` owns the TxLINE program boundary: program IDs, PDA seed metadata, and Anchor-ready `validateStat` argument shaping.
 
 ## Dependency Direction
 
@@ -28,22 +28,26 @@ packages/solana-adapter -> packages/settlement, packages/shared
 
 The domain package defines what the product needs. TxLINE and Solana packages provide adapters for those needs.
 
-## Phase 1 Runtime Shape
+## Runtime Shape
 
-1. The app stores TxLINE credentials in server-side environment variables.
-2. API routes in `apps/web` call `packages/txline-client`.
-3. The client validates fixture, odds, score, and proof payloads with shared Zod schemas.
-4. The UI remains a minimal shell until fixture and receipt workflows are added.
+1. `GET /api/demo/fixtures` attempts TxLINE fixtures, score snapshots, and odds snapshots when `TXLINE_JWT` and `TXLINE_API_TOKEN` are configured.
+2. If live data is unavailable, the route returns replay fixtures with a visible replay mode banner.
+3. The UI creates soccer markets from `packages/domain`, shows current would-resolve-now states, and records mock point positions locally.
+4. Settling a position creates a receipt and calls `GET /api/demo/proof`.
+5. `GET /api/demo/proof` attempts TxLINE `GET /api/scores/stat-validation` using the receipt fixture, sequence, stat keys, and predicate.
+6. If live proof data is unavailable, the route returns a deterministic replay proof fixture with the same normalized shape.
+7. The settlement package converts hash strings or byte arrays into checked 32-byte arrays and evaluates the requested predicate against the proof stats.
+8. The Solana adapter prepares Anchor-style `validateStat` inputs and daily score root PDA seed bytes. It does not sign or send transactions.
 
-## Phase 2-3 Runtime Shape
+## Current Settlement Scope
 
-- `packages/domain` now exposes soccer-only market templates and deterministic resolution.
-- `apps/web` exposes `/api/demo/fixtures`, which attempts TxLINE when credentials are configured and otherwise returns replay data.
-- The demo UI shows a fixture board, market cards, mock points positions, would-resolve-now states, and a readable receipt.
-- Receipts include the fixture, rule, score source, outcome, position side, ledger movement, and an expandable proof placeholder.
+- Assets are mock points in the browser UI.
+- The TxLINE token is only used for data authorization and is never treated as a user wager asset.
+- No Anchor escrow program is included yet.
+- No transactions are signed or sent by this MVP.
 
-## Later Phases
+## Later Work
 
-- Add proof retrieval and validation using `GET /api/scores/stat-validation`.
 - Add a durable receipt store if the demo needs persistence.
-- Add Anchor or Solana client implementation in `packages/solana-adapter` after the data flow is reliable.
+- Add real Anchor view-call execution for `validateStat` after wallet/RPC wiring is approved.
+- Add a minimal devnet escrow only after proof validation is reliable.

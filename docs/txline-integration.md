@@ -64,6 +64,8 @@ Soccer full-game stat keys:
 
 The settlement package normalizes proof hashes to 32 byte arrays before any Solana validation call.
 
+The hosted OpenAPI schema names the summary root `eventStatsSubTreeRoot`, while the local IDL-oriented docs and examples use `eventsSubTreeRoot`. The shared schema accepts both and normalizes the internal type to `eventsSubTreeRoot`.
+
 ## Demo Data Route
 
 The web app uses `GET /api/demo/fixtures` for the Phase 3 demo flow.
@@ -71,6 +73,28 @@ The web app uses `GET /api/demo/fixtures` for the Phase 3 demo flow.
 - If `TXLINE_JWT` and `TXLINE_API_TOKEN` are set, the route loads TxLINE fixtures, score snapshots, and odds snapshots.
 - If credentials are missing or TxLINE is unavailable, the route returns replay fixtures and marks the response as `mode: "replay"`.
 - The UI displays the active mode clearly so judges can tell whether they are seeing live TxLINE-backed data or replay data.
+
+## Proof Data Route
+
+The web app uses `GET /api/demo/proof` after a receipt is created. Query parameters:
+
+- `fixtureId`
+- `seq`
+- `statKey`
+- optional `statKey2`
+- `comparison`: `greaterThan`, `lessThan`, or `equalTo`
+- `threshold`
+- optional `op`: `add` or `subtract`
+
+The route:
+
+1. Uses `TxlineClient.getScoreStatValidation` when TxLINE credentials are present.
+2. Falls back to deterministic replay proof data when live proof retrieval is unavailable.
+3. Normalizes hash values into checked 32-byte arrays.
+4. Evaluates the predicate locally against the returned stat values.
+5. Builds Anchor-ready `validateStat` argument data and daily score root PDA seed bytes.
+
+This is not an on-chain view call yet. The route prepares and displays the validation boundary, but does not sign, simulate, or send a Solana transaction.
 
 ## Market Rule Mapping
 
@@ -87,3 +111,19 @@ The domain package maps soccer markets to TxLINE full-game stat keys:
 - Team total under `1.5`: team goals `< 2`
 
 The UI uses half-goal lines, but proof predicates stay integer-safe because soccer goals are integers.
+
+## Program Boundary
+
+Published TxLINE program IDs used by `packages/solana-adapter`:
+
+- Mainnet: `9ExbZjAapQww1vfcisDmrngPinHTEfpjYRWMunJgcKaA`
+- Devnet: `6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J`
+
+The current adapter prepares `validateStat` inputs only. Escrow and trading instructions remain out of scope for this build.
+
+## Integration Notes
+
+- The REST and SSE endpoints were straightforward once authentication was separated from the domain package.
+- The stat validation endpoint needs exact `fixtureId`, `seq`, and stat key inputs; replay mode is necessary because review may happen when no suitable live sequence is available.
+- Proof hash encoding can arrive as strings or byte arrays, so normalization must validate length and byte ranges before any Anchor boundary.
+- The `eventStatsSubTreeRoot` versus `eventsSubTreeRoot` naming difference is easy to miss and should be called out in docs.

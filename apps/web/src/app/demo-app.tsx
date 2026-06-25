@@ -4,11 +4,16 @@ import {
   buildSoccerValidationPlan,
   createSoccerMarketTemplates,
   resolveSoccerMarket,
+  type SoccerValidationPlan,
   type SoccerResolutionPreview
 } from "@worldcup-settlement/domain";
 import type { PredictionMarket, ResolutionSide } from "@worldcup-settlement/domain";
 import { useEffect, useMemo, useState } from "react";
-import type { DemoFixtureRecord, DemoFixturesResponse } from "@/lib/demo-types";
+import type {
+  DemoFixtureRecord,
+  DemoFixturesResponse,
+  DemoProofResponse
+} from "@/lib/demo-types";
 
 const startingPoints = 1000;
 const stakePoints = 25;
@@ -17,6 +22,13 @@ type LoadState =
   | { readonly status: "loading" }
   | { readonly status: "error"; readonly message: string }
   | { readonly status: "ready"; readonly data: DemoFixturesResponse };
+
+type ProofLoadState =
+  | { readonly status: "idle" }
+  | { readonly status: "loading" }
+  | { readonly status: "unavailable"; readonly reason: string }
+  | { readonly status: "error"; readonly message: string }
+  | { readonly status: "ready"; readonly data: DemoProofResponse };
 
 type PositionSide = "yes" | "no";
 
@@ -58,6 +70,7 @@ export function DemoApp() {
     settledPnl: 0
   });
   const [receipt, setReceipt] = useState<Receipt | null>(null);
+  const [proofState, setProofState] = useState<ProofLoadState>({ status: "idle" });
 
   useEffect(() => {
     const controller = new AbortController();
@@ -91,6 +104,54 @@ export function DemoApp() {
     void loadFixtures();
     return () => controller.abort();
   }, [loadKey]);
+
+  useEffect(() => {
+    if (!receipt) {
+      setProofState({ status: "idle" });
+      return;
+    }
+
+    const currentReceipt = receipt;
+    const plan = buildSoccerValidationPlan(currentReceipt.market.rule);
+
+    if (currentReceipt.resolution.sourceSeq === undefined) {
+      setProofState({
+        status: "unavailable",
+        reason: "No TxLINE score sequence is available for this receipt yet."
+      });
+      return;
+    }
+
+    const controller = new AbortController();
+
+    async function loadProof() {
+      setProofState({ status: "loading" });
+
+      try {
+        const response = await fetch(buildProofUrl(currentReceipt, plan), {
+          cache: "no-store",
+          signal: controller.signal
+        });
+        const data = (await response.json()) as DemoProofResponse;
+
+        if (!response.ok) {
+          throw new Error(data.reason || `Proof request failed with HTTP ${response.status}`);
+        }
+
+        setProofState({ status: "ready", data });
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          setProofState({
+            status: "error",
+            message: error instanceof Error ? error.message : "Could not load proof data."
+          });
+        }
+      }
+    }
+
+    void loadProof();
+    return () => controller.abort();
+  }, [receipt]);
 
   const selectedFixture =
     loadState.status === "ready"
@@ -284,7 +345,7 @@ export function DemoApp() {
 
               <aside className="settlement-column" aria-label="Settlement">
                 <PositionsPanel positions={selectedPositions} onSettle={settlePosition} />
-                <ReceiptPanel receipt={receipt} />
+                <ReceiptPanel receipt={receipt} proofState={proofState} />
               </aside>
             </div>
           </>
@@ -298,15 +359,15 @@ function LedgerPanel({ ledger }: { readonly ledger: Ledger }) {
   return (
     <div className="ledger-panel" aria-label="Mock points ledger">
       <span>Mock ledger</span>
-      <strong>{ledger.available.toLocaleString()} pts</strong>
+      <strong>{formatPoints(ledger.available)} pts</strong>
       <dl>
         <div>
           <dt>Locked</dt>
-          <dd>{ledger.locked} pts</dd>
+          <dd>{formatPoints(ledger.locked)} pts</dd>
         </div>
         <div>
           <dt>Settled P/L</dt>
-          <dd>{formatSigned(ledger.settledPnl)} pts</dd>
+          <dd>{formatSignedPoints(ledger.settledPnl)} pts</dd>
         </div>
       </dl>
     </div>
@@ -348,7 +409,7 @@ function FixtureButton({
         {scoreline.participant1Goals}-{scoreline.participant2Goals}
       </span>
       <span className="fixture-meta">
-        {statusLabel(scoreline.status)} · {formatKickoff(fixture.StartTime)}
+        {statusLabel(scoreline.status)} - {formatKickoff(fixture.StartTime)}
       </span>
     </button>
   );
@@ -443,7 +504,7 @@ function PositionsPanel({
               <div>
                 <strong>{position.marketLabel}</strong>
                 <span>
-                  {position.side.toUpperCase()} · {position.stake} pts
+                  {position.side.toUpperCase()} - {position.stake} pts
                 </span>
               </div>
               <button
@@ -461,7 +522,13 @@ function PositionsPanel({
   );
 }
 
-function ReceiptPanel({ receipt }: { readonly receipt: Receipt | null }) {
+function ReceiptPanel({
+  receipt,
+  proofState
+}: {
+  readonly receipt: Receipt | null;
+  readonly proofState: ProofLoadState;
+}) {
   if (!receipt) {
     return (
       <section className="receipt-panel">
@@ -488,10 +555,14 @@ function ReceiptPanel({ receipt }: { readonly receipt: Receipt | null }) {
         />
         <ReceiptItem label="Market rule" value={formatMarketLabel(market.rule.label, fixtureRecord)} />
         <ReceiptItem label="Score source" value={resolution.statSource ?? "No score source"} />
+        <ReceiptItem
+          label="TxLINE seq"
+          value={resolution.sourceSeq === undefined ? "Unavailable" : String(resolution.sourceSeq)}
+        />
         <ReceiptItem label="Outcome" value={resolutionLabel(resolution.side)} />
         <ReceiptItem
           label="Position"
-          value={`${position.side.toUpperCase()} · ${won ? "winning side" : receipt.status === "pending" ? "waiting" : "losing side"}`}
+          value={`${position.side.toUpperCase()} - ${won ? "winning side" : receipt.status === "pending" ? "waiting" : "losing side"}`}
         />
         <ReceiptItem
           label="Ledger movement"
@@ -501,34 +572,106 @@ function ReceiptPanel({ receipt }: { readonly receipt: Receipt | null }) {
               : `${receipt.payout} pts payout (${formatSigned(receipt.ledgerDelta)} pts net)`
           }
         />
+        <ReceiptItem label="Proof status" value={proofStateLabel(proofState)} />
+        {proofState.status === "ready" && proofState.data.evaluation ? (
+          <ReceiptItem
+            label="Validation result"
+            value={`${proofState.data.evaluation.computedValue} ${proofState.data.evaluation.predicate.comparison} ${proofState.data.evaluation.predicate.threshold}: ${proofState.data.evaluation.ok ? "true" : "false"}`}
+          />
+        ) : null}
       </div>
 
       <details className="proof-details">
-        <summary>Advanced proof placeholder</summary>
-        <dl>
-          <div>
-            <dt>Endpoint</dt>
-            <dd>
-              /api/scores/stat-validation?fixtureId={market.rule.fixtureId}
-              {resolution.sourceSeq ? `&seq=${resolution.sourceSeq}` : "&seq=<score-seq>"}
-              &statKey={plan.statKey}
-              {plan.statKey2 ? `&statKey2=${plan.statKey2}` : ""}
-            </dd>
-          </div>
-          <div>
-            <dt>Predicate</dt>
-            <dd>
-              {plan.predicate.comparison} {plan.predicate.threshold}
-              {plan.op ? ` using ${plan.op}` : ""}
-            </dd>
-          </div>
-          <div>
-            <dt>Receipt note</dt>
-            <dd>{plan.explanation}</dd>
-          </div>
-        </dl>
+        <summary>Advanced proof details</summary>
+        <ProofDetails receipt={receipt} plan={plan} proofState={proofState} />
       </details>
     </section>
+  );
+}
+
+function ProofDetails({
+  receipt,
+  plan,
+  proofState
+}: {
+  readonly receipt: Receipt;
+  readonly plan: SoccerValidationPlan;
+  readonly proofState: ProofLoadState;
+}) {
+  if (proofState.status === "loading") {
+    return <p>Loading TxLINE validation payload...</p>;
+  }
+
+  if (proofState.status === "unavailable") {
+    return <p>{proofState.reason}</p>;
+  }
+
+  if (proofState.status === "error") {
+    return <p>{proofState.message}</p>;
+  }
+
+  if (proofState.status !== "ready") {
+    return <p>Settle a position with score data to request proof details.</p>;
+  }
+
+  const proof = proofState.data;
+
+  return (
+    <>
+      <dl>
+        <div>
+          <dt>TxLINE endpoint</dt>
+          <dd>{buildTxlineProofEndpoint(receipt, plan)}</dd>
+        </div>
+        <div>
+          <dt>Proof source</dt>
+          <dd>
+            {proof.mode === "txline" ? "TxLINE API" : "Replay fixture"} - {proof.reason}
+          </dd>
+        </div>
+        <div>
+          <dt>Predicate</dt>
+          <dd>
+            {plan.predicate.comparison} {plan.predicate.threshold}
+            {plan.op ? ` using ${plan.op}` : ""}
+          </dd>
+        </div>
+        <div>
+          <dt>Stat values</dt>
+          <dd>
+            key {proof.validation?.statA.key}: {proof.validation?.statA.value}
+            {proof.validation?.statB
+              ? `, key ${proof.validation.statB.key}: ${proof.validation.statB.value}`
+              : ""}
+          </dd>
+        </div>
+        <div>
+          <dt>Anchor boundary</dt>
+          <dd>
+            {proof.anchorInput
+              ? `${proof.anchorInput.network} program ${proof.anchorInput.programId}, epoch ${proof.anchorInput.dailyScoresPdaSeed.epochDay}`
+              : "Not prepared"}
+          </dd>
+        </div>
+        <div>
+          <dt>Receipt note</dt>
+          <dd>{plan.explanation}</dd>
+        </div>
+      </dl>
+      <pre className="proof-raw">
+        {JSON.stringify(
+          {
+            request: proof.request,
+            validation: proof.validation,
+            evaluation: proof.evaluation,
+            dailyScoresPdaSeed: proof.anchorInput?.dailyScoresPdaSeed,
+            raw: proof.raw
+          },
+          null,
+          2
+        )}
+      </pre>
+    </>
   );
 }
 
@@ -624,4 +767,79 @@ function formatKickoff(timestamp: number): string {
 
 function formatSigned(value: number): string {
   return value > 0 ? `+${value}` : `${value}`;
+}
+
+function formatPoints(value: number): string {
+  return new Intl.NumberFormat("en-US").format(value);
+}
+
+function formatSignedPoints(value: number): string {
+  return value > 0 ? `+${formatPoints(value)}` : formatPoints(value);
+}
+
+function buildProofUrl(receipt: Receipt, plan: SoccerValidationPlan): string {
+  const params = new URLSearchParams(proofQueryEntries(receipt, plan));
+  return `/api/demo/proof?${params.toString()}`;
+}
+
+function buildTxlineProofEndpoint(receipt: Receipt, plan: SoccerValidationPlan): string {
+  const params = new URLSearchParams(proofQueryEntries(receipt, plan, false));
+  return `/api/scores/stat-validation?${params.toString()}`;
+}
+
+function proofQueryEntries(
+  receipt: Receipt,
+  plan: SoccerValidationPlan,
+  includePredicate = true
+): Record<string, string> {
+  const entries: Record<string, string> = {
+    fixtureId: String(receipt.market.rule.fixtureId),
+    seq: String(receipt.resolution.sourceSeq ?? ""),
+    statKey: String(plan.statKey)
+  };
+
+  if (plan.statKey2 !== undefined) {
+    entries.statKey2 = String(plan.statKey2);
+  }
+
+  if (includePredicate) {
+    entries.comparison = plan.predicate.comparison;
+    entries.threshold = String(plan.predicate.threshold);
+
+    if (plan.op) {
+      entries.op = plan.op;
+    }
+  }
+
+  return entries;
+}
+
+function proofStateLabel(proofState: ProofLoadState): string {
+  if (proofState.status === "loading") {
+    return "Loading validation payload";
+  }
+
+  if (proofState.status === "unavailable") {
+    return "Unavailable";
+  }
+
+  if (proofState.status === "error") {
+    return "Proof request failed";
+  }
+
+  if (proofState.status === "ready") {
+    if (proofState.data.status === "available") {
+      return proofState.data.mode === "txline"
+        ? "TxLINE payload ready"
+        : "Replay payload ready";
+    }
+
+    if (proofState.data.status === "predicate_failed") {
+      return "Predicate failed";
+    }
+
+    return "Unavailable";
+  }
+
+  return "Not requested";
 }

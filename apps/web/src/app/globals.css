@@ -507,6 +507,25 @@ p {
   overflow-wrap: anywhere;
 }
 
+.proof-details p {
+  font-size: 14px;
+  margin: 8px 0 0;
+}
+
+.proof-raw {
+  background: #101827;
+  border-radius: 8px;
+  color: #e5edf7;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 14px 0 0;
+  max-height: 360px;
+  overflow: auto;
+  padding: 12px;
+}
+
 .loading-grid {
   display: grid;
   gap: 14px;

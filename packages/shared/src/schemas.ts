@@ -2,6 +2,7 @@ import { z } from "zod";
 
 const integer = z.number().int();
 const timestampMs = integer;
+const hashValueSchema = z.union([z.string(), z.array(integer), z.instanceof(Uint8Array)]);
 
 export const fixtureSchema = z.object({
   Ts: timestampMs,
@@ -60,7 +61,7 @@ export const scoreSchema = z
   .passthrough();
 
 export const proofNodeSchema = z.object({
-  hash: z.union([z.string(), z.array(integer), z.instanceof(Uint8Array)]),
+  hash: hashValueSchema,
   isRightSibling: z.boolean()
 });
 
@@ -70,20 +71,41 @@ export const scoreStatSchema = z.object({
   period: integer
 });
 
-export const scoresBatchSummarySchema = z.object({
+const rawScoresBatchSummarySchema = z.object({
   fixtureId: integer,
   updateStats: z.object({
     updateCount: integer,
     minTimestamp: timestampMs,
     maxTimestamp: timestampMs
   }),
-  eventsSubTreeRoot: z.union([z.string(), z.array(integer), z.instanceof(Uint8Array)])
+  eventsSubTreeRoot: hashValueSchema.optional(),
+  eventStatsSubTreeRoot: hashValueSchema.optional()
 });
+
+export const scoresBatchSummarySchema = rawScoresBatchSummarySchema.transform(
+  (summary, context) => {
+    const eventsSubTreeRoot = summary.eventsSubTreeRoot ?? summary.eventStatsSubTreeRoot;
+
+    if (!eventsSubTreeRoot) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Scores batch summary did not include an events sub-tree root"
+      });
+      return z.NEVER;
+    }
+
+    return {
+      fixtureId: summary.fixtureId,
+      updateStats: summary.updateStats,
+      eventsSubTreeRoot
+    };
+  }
+);
 
 export const scoresStatValidationSchema = z.object({
   ts: timestampMs,
   statToProve: scoreStatSchema,
-  eventStatRoot: z.union([z.string(), z.array(integer), z.instanceof(Uint8Array)]),
+  eventStatRoot: hashValueSchema,
   summary: scoresBatchSummarySchema,
   statProof: z.array(proofNodeSchema),
   subTreeProof: z.array(proofNodeSchema),
